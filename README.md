@@ -2,7 +2,7 @@
 
 Interactive CLI app to transcribe or translate audio/video using OpenAI Whisper.
 
-## Table of Contents
+## Contents
 
 - [What It Does](#what-it-does)
 - [Prerequisites](#prerequisites)
