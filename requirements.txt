@@ -1,0 +1,7 @@
+openai-whisper
+torch
+tqdm
+colorama
+pyfiglet
+ffmpeg-python
+yt-dlp

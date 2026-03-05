@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.mypy_cache/
+.pytest_cache/
+
+# Virtual environments
+venv/
+.venv/
+
+# Whisper/cache artifacts
+*.pt
+
+# Runtime outputs
+*.mp3
+*.wav
+*.m4a
+*.srt
+*_transcription.txt
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
