@@ -14,13 +14,17 @@ venv/
 *.pt
 
 # Runtime outputs
+downloaded_audio.mp3
+outputs/
 *.mp3
 *.wav
 *.m4a
 *.srt
+*.vtt
 *_transcription.txt
 
-# OS/editor
+# Local config and OS/editor files
+.env
 .DS_Store
 Thumbs.db
 .vscode/

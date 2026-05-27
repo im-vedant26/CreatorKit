@@ -1,5 +1,6 @@
 # main.py
 import itertools
+import getpass
 import os
 import shutil
 import threading
@@ -12,7 +13,7 @@ from colorama import Fore, Style, init
 import pyfiglet
 import yt_dlp
 
-from transcriber import transcribe_audio, segments_to_srt
+from transcriber import transcribe_audio, segments_to_srt, segments_to_vtt
 
 
 init(autoreset=True)
@@ -20,6 +21,10 @@ init(autoreset=True)
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 DOWNLOAD_BASE = os.path.join(PROJECT_DIR, "downloaded_audio")
 DOWNLOAD_FILE = DOWNLOAD_BASE + ".mp3"
+OUTPUT_DIR = os.path.join(PROJECT_DIR, "outputs")
+APP_NAME = "CreatorKit"
+APP_COMMAND = "creatorkit"
+APP_TAGLINE = "Turn audio and video into transcripts, captions, and creator-ready assets."
 
 ACCENT = Fore.LIGHTCYAN_EX
 MUTED = Fore.LIGHTBLACK_EX
@@ -137,15 +142,27 @@ def run_with_activity(message, callback):
 
 def print_header():
     width = display_width()
-    ascii_banner = pyfiglet.figlet_format("AI Transcriber", font="small")
+    ascii_banner = pyfiglet.figlet_format(APP_NAME, font="small")
     print()
     print(FRAME + CORNER_TL + BORDER_H * (width - 2) + CORNER_TR)
     for row in ascii_banner.rstrip().splitlines():
         print(FRAME + BORDER_V + ACCENT + Style.BRIGHT + row.center(width - 2) + FRAME + BORDER_V)
     print(FRAME + TEE_L + BORDER_H * (width - 2) + TEE_R)
-    print(FRAME + BORDER_V + TEXT + "  Local AI transcription studio".ljust(width - 2) + FRAME + BORDER_V)
-    print(FRAME + BORDER_V + MUTED + "  Built by Vedant | files, links, TXT, and SRT".ljust(width - 2) + FRAME + BORDER_V)
+    print(FRAME + BORDER_V + TEXT + f"  {APP_TAGLINE}".ljust(width - 2) + FRAME + BORDER_V)
+    print(FRAME + BORDER_V + MUTED + "  Creator-first CLI for videos, podcasts, reels, and subtitles".ljust(width - 2) + FRAME + BORDER_V)
     print(FRAME + CORNER_BL + BORDER_H * (width - 2) + CORNER_BR)
+
+
+def current_user_name():
+    try:
+        name = getpass.getuser().strip()
+        return name or "creator"
+    except Exception:
+        return "creator"
+
+
+def print_goodbye():
+    print(TEXT + f"\n  Thanks for using {APP_NAME}, {current_user_name()}.")
 
 
 def print_menu(title, options):
@@ -223,6 +240,47 @@ def save_file_dialog(default_filename, extension, filetypes):
         except Exception:
             pass
     return file_path
+
+
+def safe_name(value):
+    name = os.path.splitext(os.path.basename(value))[0].strip()
+    cleaned = "".join(char if char.isalnum() or char in ("-", "_", " ") else "_" for char in name)
+    cleaned = "_".join(cleaned.split())
+    return cleaned or "creator_project"
+
+
+def write_text_file(path, content):
+    with open(path, "w", encoding="utf-8") as file:
+        file.write(content)
+
+
+def create_project_output_folder(file_path):
+    base_name = safe_name(file_path)
+    folder = os.path.join(OUTPUT_DIR, base_name)
+    if not os.path.exists(folder):
+        os.makedirs(folder, exist_ok=True)
+        return folder
+
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    folder = os.path.join(OUTPUT_DIR, f"{base_name}_{timestamp}")
+    os.makedirs(folder, exist_ok=True)
+    return folder
+
+
+def export_project_folder(file_path, output_text, srt_segments):
+    folder = create_project_output_folder(file_path)
+    base_name = safe_name(file_path)
+    files = {
+        f"{base_name}_transcript.txt": output_text,
+        f"{base_name}_captions.srt": segments_to_srt(srt_segments),
+        f"{base_name}_captions.vtt": segments_to_vtt(srt_segments),
+    }
+
+    for filename, content in files.items():
+        write_text_file(os.path.join(folder, filename), content)
+
+    status("SAVED", f"Creator project folder: {folder}", GOOD)
+    return folder
 
 
 def _yt_dlp_download(url, outpath, extra_opts=None):
@@ -327,32 +385,41 @@ def save_transcript(file_path, output_text, srt_segments):
         "Save Output",
         [
             ("1", "TXT", "plain text transcript"),
-            ("2", "SRT", "subtitles with timestamps"),
-            ("3", "Do not save", "return to main menu"),
+            ("2", "SRT", "subtitle file for editing and platforms"),
+            ("3", "VTT", "web captions for YouTube/web players"),
+            ("4", "Creator folder", "TXT, SRT, and VTT together"),
+            ("5", "Do not save", "return to main menu"),
         ],
     )
-    save_choice = ask_choice("Choose save format", ["1", "2", "3"])
+    save_choice = ask_choice("Choose save format", ["1", "2", "3", "4", "5"])
 
-    if save_choice == "3":
+    if save_choice == "5":
         status("SKIP", "Output was not saved.", ACCENT)
         return
 
-    base_name = os.path.splitext(os.path.basename(file_path))[0]
+    if save_choice == "4":
+        export_project_folder(file_path, output_text, srt_segments)
+        return
+
+    base_name = safe_name(file_path)
     if save_choice == "1":
         default_name = f"{base_name}_transcription.txt"
         save_path = save_file_dialog(default_name, ".txt", [("Text Files", "*.txt"), ("All files", "*.*")])
         content = output_text
-    else:
+    elif save_choice == "2":
         default_name = f"{base_name}.srt"
         save_path = save_file_dialog(default_name, ".srt", [("SRT Files", "*.srt"), ("All files", "*.*")])
         content = segments_to_srt(srt_segments)
+    else:
+        default_name = f"{base_name}.vtt"
+        save_path = save_file_dialog(default_name, ".vtt", [("WebVTT Files", "*.vtt"), ("All files", "*.*")])
+        content = segments_to_vtt(srt_segments)
 
     if not save_path:
         status("CANCELLED", "Save cancelled.", WARN)
         return
 
-    with open(save_path, "w", encoding="utf-8") as file:
-        file.write(content)
+    write_text_file(save_path, content)
     status("SAVED", save_path, GOOD)
 
 
@@ -440,7 +507,7 @@ def main():
                 continue
 
         else:
-            print(TEXT + "\n  Goodbye, Vedant.")
+            print_goodbye()
             break
 
         try:
@@ -458,7 +525,7 @@ def main():
 
         again = ask_choice("Transcribe another file?", ["y", "n"], default="y")
         if again != "y":
-            print(TEXT + "\n  Goodbye, Vedant.")
+            print_goodbye()
             break
 
 
