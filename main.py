@@ -1,34 +1,184 @@
+# main.py
+import itertools
 import os
+import shutil
+import threading
+import textwrap
+import time
 import tkinter as tk
 from tkinter import filedialog
 
+from colorama import Fore, Style, init
 import pyfiglet
 import yt_dlp
-from colorama import Fore, init
 
-from transcriber import segments_to_srt, transcribe_audio
+from transcriber import transcribe_audio, segments_to_srt
+
 
 init(autoreset=True)
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
-PREVIEW_LIMIT = 5000
+DOWNLOAD_BASE = os.path.join(PROJECT_DIR, "downloaded_audio")
+DOWNLOAD_FILE = DOWNLOAD_BASE + ".mp3"
+
+ACCENT = Fore.LIGHTCYAN_EX
+MUTED = Fore.LIGHTBLACK_EX
+TEXT = Fore.LIGHTWHITE_EX
+GOOD = Fore.LIGHTGREEN_EX
+WARN = Fore.YELLOW
+BAD = Fore.LIGHTRED_EX
+FRAME = Fore.BLUE
+BORDER_H = "-"
+BORDER_V = "|"
+CORNER_TL = "+"
+CORNER_TR = "+"
+CORNER_BL = "+"
+CORNER_BR = "+"
+TEE_L = "+"
+TEE_R = "+"
 
 
 def clear_screen():
     os.system("cls" if os.name == "nt" else "clear")
 
 
+def terminal_width():
+    return min(shutil.get_terminal_size((88, 20)).columns, 100)
+
+
+def display_width():
+    return max(72, terminal_width())
+
+
+def line(char=BORDER_H):
+    print(FRAME + char * display_width())
+
+
+def center(text, color=TEXT):
+    print(color + text.center(display_width()))
+
+
+def section(title):
+    print()
+    print(FRAME + CORNER_TL + BORDER_H * (display_width() - 2) + CORNER_TR)
+    print(FRAME + BORDER_V + " " + ACCENT + Style.BRIGHT + title.ljust(display_width() - 4) + FRAME + " " + BORDER_V)
+    print(FRAME + CORNER_BL + BORDER_H * (display_width() - 2) + CORNER_BR)
+
+
+def status(label, message, color=TEXT):
+    print(color + f"  {label:<9}" + MUTED + "| " + TEXT + message)
+
+
+def pause(message="Press Enter to continue..."):
+    input(MUTED + f"\n  {message}")
+
+
+def box(lines, title=None, color=TEXT):
+    width = display_width()
+    print(FRAME + CORNER_TL + (BORDER_H * (width - 2)) + CORNER_TR)
+    if title:
+        title_text = f" {title} "
+        print(FRAME + BORDER_V + ACCENT + Style.BRIGHT + title_text.ljust(width - 2) + FRAME + BORDER_V)
+        print(FRAME + TEE_L + (BORDER_H * (width - 2)) + TEE_R)
+    for raw_line in lines:
+        for wrapped in textwrap.wrap(str(raw_line), width=width - 6) or [""]:
+            print(FRAME + BORDER_V + "  " + color + wrapped.ljust(width - 6) + FRAME + "  " + BORDER_V)
+    print(FRAME + CORNER_BL + (BORDER_H * (width - 2)) + CORNER_BR)
+
+
+def run_with_activity(message, callback):
+    done = threading.Event()
+    result = {}
+
+    def worker():
+        try:
+            result["value"] = callback()
+        except Exception as err:
+            result["error"] = err
+        finally:
+            done.set()
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+
+    frames = itertools.cycle(["|", "/", "-", "\\"])
+    started = time.monotonic()
+    detail_cycle = itertools.cycle(
+        [
+            "loading model",
+            "reading audio",
+            "detecting speech",
+            "building transcript",
+            "almost there",
+        ]
+    )
+    detail = next(detail_cycle)
+    next_detail_at = started + 8
+
+    while not done.is_set():
+        now = time.monotonic()
+        if now >= next_detail_at:
+            detail = next(detail_cycle)
+            next_detail_at = now + 8
+        elapsed = int(now - started)
+        line_text = f"  {next(frames)} {message}  {MUTED}{detail} | {elapsed}s elapsed"
+        print(ACCENT + line_text.ljust(display_width()), end="\r", flush=True)
+        time.sleep(0.12)
+
+    thread.join()
+    elapsed = int(time.monotonic() - started)
+    print(" " * display_width(), end="\r", flush=True)
+
+    if "error" in result:
+        raise result["error"]
+    status("DONE", f"{message} finished in {elapsed}s.", GOOD)
+    return result.get("value")
+
+
 def print_header():
-    ascii_banner = pyfiglet.figlet_format("AI Transcriber")
-    print(Fore.CYAN + ascii_banner)
-    print(Fore.LIGHTWHITE_EX + "Made by Vedant | Simple. Clean. Aesthetic.\n")
+    width = display_width()
+    ascii_banner = pyfiglet.figlet_format("AI Transcriber", font="small")
+    print()
+    print(FRAME + CORNER_TL + BORDER_H * (width - 2) + CORNER_TR)
+    for row in ascii_banner.rstrip().splitlines():
+        print(FRAME + BORDER_V + ACCENT + Style.BRIGHT + row.center(width - 2) + FRAME + BORDER_V)
+    print(FRAME + TEE_L + BORDER_H * (width - 2) + TEE_R)
+    print(FRAME + BORDER_V + TEXT + "  Local AI transcription studio".ljust(width - 2) + FRAME + BORDER_V)
+    print(FRAME + BORDER_V + MUTED + "  Built by Vedant | files, links, TXT, and SRT".ljust(width - 2) + FRAME + BORDER_V)
+    print(FRAME + CORNER_BL + BORDER_H * (width - 2) + CORNER_BR)
+
+
+def print_menu(title, options):
+    print()
+    print(ACCENT + Style.BRIGHT + f"  {title}")
+    print(MUTED + "  " + BORDER_H * min(display_width() - 2, 60))
+    for key, label, hint in options:
+        key_box = WARN + f"[{key}] "
+        print(key_box + TEXT + f"{label:<24}" + MUTED + hint)
+
+
+def ask_choice(prompt, valid_choices, default=None):
+    choices = "/".join(valid_choices)
+    suffix = f" [{choices}]"
+    if default:
+        suffix += f" default: {default}"
+
+    while True:
+        value = input(ACCENT + f"\n  > {prompt}{suffix}: " + TEXT).strip().lower()
+        if not value and default:
+            return default
+        if value in valid_choices:
+            return value
+        status("ERROR", f"Choose one of: {choices}", BAD)
 
 
 def browse_file():
-    """Open a native file dialog and return the selected path."""
-    root = None
+    """
+    Open a native file dialog and return the selected path.
+    Keeps the Tk root topmost so the dialog is less likely to open behind the terminal.
+    """
+    root = tk.Tk()
     try:
-        root = tk.Tk()
         root.withdraw()
         root.attributes("-topmost", True)
         root.update()
@@ -40,30 +190,23 @@ def browse_file():
                 ("All files", "*.*"),
             ],
         )
-    except tk.TclError as err:
-        print(Fore.RED + f"\n[ERROR] Could not open file picker: {err}")
-        print(Fore.YELLOW + "Tip: Use a desktop session with Tk support.\n")
-        return ""
     finally:
-        if root is not None:
-            try:
-                root.destroy()
-            except Exception:
-                pass
+        try:
+            root.destroy()
+        except Exception:
+            pass
 
     if file_path:
-        print(Fore.LIGHTWHITE_EX + f"\nSelected: {file_path}\n")
+        status("SELECTED", file_path, GOOD)
     else:
-        print(Fore.RED + "\nNo file selected.\n")
+        status("CANCELLED", "No file selected.", WARN)
 
     return file_path
 
 
 def save_file_dialog(default_filename, extension, filetypes):
-    """Open a native save dialog and return the selected path."""
-    root = None
+    root = tk.Tk()
     try:
-        root = tk.Tk()
         root.withdraw()
         root.attributes("-topmost", True)
         root.update()
@@ -74,16 +217,11 @@ def save_file_dialog(default_filename, extension, filetypes):
             defaultextension=extension,
             filetypes=filetypes,
         )
-    except tk.TclError as err:
-        print(Fore.RED + f"\n[ERROR] Could not open save dialog: {err}")
-        return ""
     finally:
-        if root is not None:
-            try:
-                root.destroy()
-            except Exception:
-                pass
-
+        try:
+            root.destroy()
+        except Exception:
+            pass
     return file_path
 
 
@@ -108,74 +246,165 @@ def _yt_dlp_download(url, outpath, extra_opts=None):
 
 
 def download_video_from_link(url):
-    """Download audio from URL and return local mp3 path."""
-    print(Fore.LIGHTCYAN_EX + "\nDownloading audio from link... Please wait...\n")
-    output_base = os.path.join(PROJECT_DIR, "downloaded_audio")
-    final_output_path = output_base + ".mp3"
+    """Download audio from a link and return the local MP3 path."""
+    section("Download")
+    status("WORKING", "Downloading best available audio. This can take a moment.", ACCENT)
 
     try:
-        _yt_dlp_download(url, output_base)
-        print(Fore.GREEN + "Audio downloaded successfully.\n")
-        return final_output_path
+        run_with_activity("Downloading audio", lambda: _yt_dlp_download(url, DOWNLOAD_BASE))
+        return DOWNLOAD_FILE
     except Exception as err:
-        print(Fore.RED + f"Download failed: {err}\n")
+        status("ERROR", f"Anonymous download failed: {err}", BAD)
 
-    print(Fore.YELLOW + "This often happens when the post requires login (private/age-gated).")
-    print(Fore.LIGHTWHITE_EX + "Options:")
-    print("  1) Retry using browser cookies (automatic).")
-    print("  2) Provide a cookies.txt file.")
-    print("  3) Skip and return to main menu.\n")
+    box(
+        [
+            "Some links need login cookies, especially private, age-gated, or platform-limited posts.",
+            "1. Retry using browser cookies automatically",
+            "2. Use a cookies.txt file",
+            "3. Return to main menu",
+        ],
+        title="Download needs access",
+    )
 
     while True:
-        choice = input(Fore.CYAN + "Choose retry option [1/2/3]: ").strip()
+        choice = ask_choice("Retry option", ["1", "2", "3"], default="3")
+
         if choice == "1":
             for browser in ["chrome", "edge", "firefox"]:
                 try:
-                    print(Fore.LIGHTCYAN_EX + f"\nRetrying with browser cookies ({browser})...\n")
-                    _yt_dlp_download(url, output_base, extra_opts={"cookies_from_browser": browser})
-                    print(Fore.GREEN + "Audio downloaded successfully using browser cookies.\n")
-                    return final_output_path
+                    status("RETRY", f"Trying {browser} browser cookies...", ACCENT)
+                    run_with_activity(
+                        f"Downloading with {browser} cookies",
+                        lambda browser=browser: _yt_dlp_download(
+                            url,
+                            DOWNLOAD_BASE,
+                            extra_opts={"cookies_from_browser": browser},
+                        ),
+                    )
+                    return DOWNLOAD_FILE
                 except Exception as err:
-                    print(Fore.YELLOW + f"Attempt with '{browser}' failed: {err}")
+                    status("WARN", f"{browser} cookies failed: {err}", WARN)
+            status("ERROR", "All browser-cookie attempts failed.", BAD)
 
-            print(Fore.RED + "\nAll automatic browser-cookie retries failed.")
-            continue
-
-        if choice == "2":
-            cookie_path = input(Fore.LIGHTWHITE_EX + "\nEnter full path to cookies.txt: ").strip()
+        elif choice == "2":
+            cookie_path = input(ACCENT + "\n  > Full path to cookies.txt: " + TEXT).strip().strip('"')
             if not cookie_path or not os.path.exists(cookie_path):
-                print(Fore.RED + "Invalid cookies file path.")
-                if input(Fore.CYAN + "Try again? (y/n): ").lower().strip() == "y":
-                    continue
-                return None
-
+                status("ERROR", "That cookies file path does not exist.", BAD)
+                continue
             try:
-                print(Fore.LIGHTCYAN_EX + "\nRetrying with provided cookies file...\n")
-                _yt_dlp_download(url, output_base, extra_opts={"cookiefile": cookie_path})
-                print(Fore.GREEN + "Audio downloaded successfully using cookies file.\n")
-                return final_output_path
+                status("RETRY", "Trying provided cookies file...", ACCENT)
+                run_with_activity(
+                    "Downloading with cookies file",
+                    lambda: _yt_dlp_download(url, DOWNLOAD_BASE, extra_opts={"cookiefile": cookie_path}),
+                )
+                return DOWNLOAD_FILE
             except Exception as err:
-                print(Fore.RED + f"Retry with cookies file failed: {err}")
-                if input(Fore.CYAN + "Try another option? (y/n): ").lower().strip() == "y":
-                    continue
-                return None
+                status("ERROR", f"Retry with cookies file failed: {err}", BAD)
 
-        if choice == "3":
-            print(Fore.CYAN + "\nSkipping download and returning to main menu...\n")
+        elif choice == "3":
+            status("SKIP", "Returning to main menu.", ACCENT)
             return None
 
-        print(Fore.RED + "Invalid option. Enter 1, 2 or 3.")
+
+def show_transcript_preview(text):
+    section("Transcript")
+    clean_text = text.strip() or "(No transcript text returned.)"
+    max_chars = 12000
+    preview = clean_text[:max_chars]
+    width = max(60, terminal_width() - 4)
+
+    for paragraph in preview.splitlines() or [preview]:
+        wrapped = textwrap.fill(paragraph, width=width) if paragraph.strip() else ""
+        print(TEXT + "  " + wrapped)
+
+    if len(clean_text) > max_chars:
+        hidden = len(clean_text) - max_chars
+        print(MUTED + f"\n  Preview truncated. {hidden:,} more characters can still be saved to TXT.")
 
 
-def delete_temp_file(path):
-    if not path:
+def save_transcript(file_path, output_text, srt_segments):
+    print_menu(
+        "Save Output",
+        [
+            ("1", "TXT", "plain text transcript"),
+            ("2", "SRT", "subtitles with timestamps"),
+            ("3", "Do not save", "return to main menu"),
+        ],
+    )
+    save_choice = ask_choice("Choose save format", ["1", "2", "3"])
+
+    if save_choice == "3":
+        status("SKIP", "Output was not saved.", ACCENT)
         return
+
+    base_name = os.path.splitext(os.path.basename(file_path))[0]
+    if save_choice == "1":
+        default_name = f"{base_name}_transcription.txt"
+        save_path = save_file_dialog(default_name, ".txt", [("Text Files", "*.txt"), ("All files", "*.*")])
+        content = output_text
+    else:
+        default_name = f"{base_name}.srt"
+        save_path = save_file_dialog(default_name, ".srt", [("SRT Files", "*.srt"), ("All files", "*.*")])
+        content = segments_to_srt(srt_segments)
+
+    if not save_path:
+        status("CANCELLED", "Save cancelled.", WARN)
+        return
+
+    with open(save_path, "w", encoding="utf-8") as file:
+        file.write(content)
+    status("SAVED", save_path, GOOD)
+
+
+def cleanup_downloaded_file(file_path):
     try:
-        if os.path.exists(path):
-            os.remove(path)
-            print(Fore.GREEN + "Temporary audio file deleted to save storage.")
+        if file_path and os.path.abspath(file_path) == os.path.abspath(DOWNLOAD_FILE) and os.path.exists(file_path):
+            os.remove(file_path)
+            status("CLEANUP", "Temporary downloaded audio deleted.", GOOD)
     except Exception as err:
-        print(Fore.RED + f"Failed to delete temporary file: {err}")
+        status("WARN", f"Could not delete temporary audio: {err}", WARN)
+
+
+def run_transcription(file_path):
+    section("Setup")
+    status("FILE", file_path, TEXT)
+
+    print_menu(
+        "Transcription Mode",
+        [
+            ("1", "Original language", "transcribe exactly as spoken"),
+            ("2", "Translate to English", "Whisper translation mode"),
+        ],
+    )
+    mode_choice = ask_choice("Choose mode", ["1", "2"], default="1")
+    task_mode = "translate" if mode_choice == "2" else "transcribe"
+
+    print_menu(
+        "AI Model",
+        [
+            ("1", "Small", "fastest, lower accuracy"),
+            ("2", "Medium", "balanced"),
+            ("3", "Large", "slowest, best accuracy"),
+        ],
+    )
+    model_choice = ask_choice("Choose model", ["1", "2", "3"], default="1")
+    model_name = {"1": "small", "2": "medium", "3": "large"}[model_choice]
+
+    section("Processing")
+    box(
+        [
+            f"Model: Whisper {model_name}",
+            f"Mode: {task_mode}",
+            "The app is working while the animation is moving. Large files and large models can take several minutes.",
+        ],
+        title="Session",
+    )
+
+    output_text, srt_segments = run_with_activity(
+        "Transcribing audio",
+        lambda: transcribe_audio(file_path, task=task_mode, model_name=model_name),
+    )
+    return output_text, srt_segments
 
 
 def main():
@@ -183,127 +412,54 @@ def main():
         clear_screen()
         print_header()
 
-        print(Fore.YELLOW + "Choose input method:\n")
-        print("1. Upload from your device")
-        print("2. Paste a video link (Instagram / YouTube / etc.)")
-        print("3. Exit")
-        choice = input(Fore.LIGHTWHITE_EX + "\nEnter your choice [1/2/3]: ").strip()
-
-        downloaded_from_link = False
+        print_menu(
+            "Input",
+            [
+                ("1", "Upload from your device", "audio or video file"),
+                ("2", "Paste a video link", "YouTube, Instagram, and more"),
+                ("3", "Exit", "close the app"),
+            ],
+        )
+        choice = ask_choice("Enter your choice", ["1", "2", "3"])
 
         if choice == "1":
             file_path = browse_file()
             if not file_path:
-                input(Fore.LIGHTWHITE_EX + "Press Enter to return to main menu...")
+                pause("Press Enter to return to main menu...")
                 continue
+
         elif choice == "2":
-            link = input(Fore.YELLOW + "\nPaste the video link: ").strip()
+            link = input(ACCENT + "\n  > Paste the video link: " + TEXT).strip()
             if not link:
-                print(Fore.RED + "No link provided.")
-                input(Fore.LIGHTWHITE_EX + "\nPress Enter to continue...")
+                status("ERROR", "No link provided.", BAD)
+                pause()
                 continue
             file_path = download_video_from_link(link)
             if not file_path:
-                input(Fore.LIGHTWHITE_EX + "\nPress Enter to continue...")
+                pause()
                 continue
-            downloaded_from_link = True
-        elif choice == "3":
-            print(Fore.LIGHTWHITE_EX + "\nExiting. Have a great day, Vedant!")
-            break
+
         else:
-            print(Fore.RED + "Invalid choice.")
-            input(Fore.LIGHTWHITE_EX + "\nPress Enter to continue...")
-            continue
+            print(TEXT + "\n  Goodbye, Vedant.")
+            break
 
-        ask_again = True
         try:
-            print(Fore.LIGHTWHITE_EX + f"Selected File: {file_path}\n")
-            print(Fore.YELLOW + "\nChoose transcription mode:")
-            print("1. Original Language (Transcribe)")
-            print("2. Translate to English")
-            mode_choice = input(Fore.LIGHTWHITE_EX + "\nEnter choice [1/2]: ").strip()
-            task_mode = "translate" if mode_choice == "2" else "transcribe"
-
-            print(Fore.YELLOW + "\nChoose AI Model (Accuracy vs Speed):")
-            print("1. Small (Fast, Lower Accuracy)")
-            print("2. Medium (Balanced)")
-            print("3. Large (Slow, Best Accuracy)")
-            model_choice = input(Fore.LIGHTWHITE_EX + "\nEnter choice [1/2/3]: ").strip()
-
-            if model_choice == "2":
-                model_name = "medium"
-            elif model_choice == "3":
-                model_name = "large"
-            else:
-                model_name = "small"
-
-            print(Fore.LIGHTCYAN_EX + f"\nTranscribing with '{model_name}' model... Please wait...\n")
-            try:
-                output_text, srt_output = transcribe_audio(
-                    file_path,
-                    task=task_mode,
-                    model_name=model_name,
-                )
-            except Exception as err:
-                print(Fore.RED + f"Transcription failed: {err}")
-                input(Fore.LIGHTWHITE_EX + "\nPress Enter to return to main menu...")
-                continue
-
-            print(Fore.GREEN + "Transcription complete.\n")
-            preview = output_text[:PREVIEW_LIMIT]
-            if len(output_text) > PREVIEW_LIMIT:
-                preview += "..."
-            print(Fore.LIGHTWHITE_EX + preview)
-
-            print(Fore.YELLOW + "\nChoose format to save:")
-            print("1. TXT (Plain Text)")
-            print("2. SRT (Subtitles with timestamps)")
-            print("3. Do not save, return to main menu")
-            save_choice = input(Fore.LIGHTWHITE_EX + "\nEnter choice [1/2/3]: ").strip()
-
-            if save_choice == "1":
-                base_name = os.path.splitext(os.path.basename(file_path))[0]
-                default_name = f"{base_name}_transcription.txt"
-                save_path = save_file_dialog(
-                    default_name,
-                    ".txt",
-                    [("Text Files", "*.txt"), ("All files", "*.*")],
-                )
-                if save_path:
-                    with open(save_path, "w", encoding="utf-8") as handle:
-                        handle.write(output_text)
-                    print(Fore.GREEN + f"Saved as '{save_path}'.")
-                else:
-                    print(Fore.YELLOW + "Save cancelled.")
-            elif save_choice == "2":
-                base_name = os.path.splitext(os.path.basename(file_path))[0]
-                default_name = f"{base_name}.srt"
-                save_path = save_file_dialog(
-                    default_name,
-                    ".srt",
-                    [("SRT Files", "*.srt"), ("All files", "*.*")],
-                )
-                if save_path:
-                    with open(save_path, "w", encoding="utf-8") as handle:
-                        handle.write(segments_to_srt(srt_output))
-                    print(Fore.GREEN + f"Saved as '{save_path}'.")
-                else:
-                    print(Fore.YELLOW + "Save cancelled.")
-            elif save_choice == "3":
-                ask_again = False
-                print(Fore.CYAN + "\nReturning to main menu...\n")
-            else:
-                ask_again = False
-                print(Fore.RED + "Invalid choice. Returning to main menu...")
-
-            if ask_again:
-                again = input(Fore.YELLOW + "\nDo you want to transcribe another file? (y/n): ").lower().strip()
-                if again != "y":
-                    print(Fore.LIGHTWHITE_EX + "\nExiting. Have a great day, Vedant!")
-                    break
+            output_text, srt_segments = run_transcription(file_path)
+            show_transcript_preview(output_text)
+            save_transcript(file_path, output_text, srt_segments)
+        except KeyboardInterrupt:
+            print()
+            status("STOPPED", "Operation cancelled by user.", WARN)
+        except Exception as err:
+            status("ERROR", f"Transcription failed: {err}", BAD)
         finally:
-            if downloaded_from_link:
-                delete_temp_file(file_path)
+            if choice == "2":
+                cleanup_downloaded_file(file_path)
+
+        again = ask_choice("Transcribe another file?", ["y", "n"], default="y")
+        if again != "y":
+            print(TEXT + "\n  Goodbye, Vedant.")
+            break
 
 
 if __name__ == "__main__":
