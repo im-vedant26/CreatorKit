@@ -9,6 +9,7 @@ $BinDir = Join-Path $InstallRoot "bin"
 $LogDir = Join-Path $InstallRoot "logs"
 $LauncherPath = Join-Path $BinDir "$CommandName.ps1"
 $CmdLauncherPath = Join-Path $BinDir "$CommandName.cmd"
+$script:InstallerErrorShown = $false
 
 function Write-Step($Message, $Color = "Cyan") {
     Write-Host "  $Message" -ForegroundColor $Color
@@ -39,24 +40,18 @@ function Invoke-QuietStep($Message, [scriptblock]$Action) {
     catch {
         Write-Host " failed" -ForegroundColor Red
         Write-Host ""
-        Write-Host "CreatorKit could not finish this step:" -ForegroundColor Red
-        Write-Host "  $Message" -ForegroundColor White
+        Write-Host "CreatorKit setup could not finish." -ForegroundColor Red
+        Write-Host "Please try running the install command again." -ForegroundColor White
         Write-Host ""
-        Write-Host "Technical details were saved here:" -ForegroundColor Yellow
+        Write-Host "If it still fails, send this log file for help:" -ForegroundColor Yellow
         Write-Host "  $LogPath" -ForegroundColor DarkGray
 
-        if (Test-Path $LogPath) {
-            Write-Host ""
-            Write-Host "Last lines from the installer log:" -ForegroundColor Yellow
-            Get-Content -Path $LogPath -Tail 20 | ForEach-Object {
-                Write-Host "  $_" -ForegroundColor DarkGray
-            }
-        }
-
+        $script:InstallerErrorShown = $true
         throw
     }
 }
 
+try {
 Write-Host ""
 Write-Host "CreatorKit Setup" -ForegroundColor Cyan
 Write-Host "----------------" -ForegroundColor DarkGray
@@ -74,12 +69,20 @@ if (-not (Get-Command "ffmpeg" -ErrorAction SilentlyContinue)) {
 New-Item -ItemType Directory -Force -Path $InstallRoot, $BinDir, $LogDir | Out-Null
 
 if (Test-Path $RepoDir) {
-    Invoke-QuietStep "Updating app files" {
-        git -C $RepoDir pull --ff-only
+    if (Test-Path (Join-Path $RepoDir ".git")) {
+        Invoke-QuietStep "Preparing app files" {
+            git -C $RepoDir pull --ff-only
+        }
+    }
+    else {
+        Invoke-QuietStep "Preparing app files" {
+            Remove-Item -LiteralPath $RepoDir -Recurse -Force
+            git clone --quiet $RepoUrl $RepoDir
+        }
     }
 }
 else {
-    Invoke-QuietStep "Downloading app files" {
+    Invoke-QuietStep "Preparing app files" {
         git clone --quiet $RepoUrl $RepoDir
     }
 }
@@ -123,3 +126,11 @@ Write-Host "Start it anytime by typing:" -ForegroundColor White
 Write-Host "  $CommandName" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "If your current terminal does not recognize the command, open a new terminal and try again." -ForegroundColor DarkGray
+}
+catch {
+    if (-not $script:InstallerErrorShown) {
+        Write-Host ""
+        Write-Host "CreatorKit setup could not finish." -ForegroundColor Red
+        Write-Host "Please check that Python and Git are installed, then try again." -ForegroundColor White
+    }
+}
