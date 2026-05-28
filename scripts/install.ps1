@@ -6,11 +6,12 @@ $RepoUrl = "https://github.com/im-vedant26/CreatorKit.git"
 $InstallRoot = Join-Path $env:LOCALAPPDATA $AppName
 $RepoDir = Join-Path $InstallRoot "app"
 $BinDir = Join-Path $InstallRoot "bin"
+$LogDir = Join-Path $InstallRoot "logs"
 $LauncherPath = Join-Path $BinDir "$CommandName.ps1"
 $CmdLauncherPath = Join-Path $BinDir "$CommandName.cmd"
 
-function Write-Step($Message) {
-    Write-Host "[CreatorKit] $Message" -ForegroundColor Cyan
+function Write-Step($Message, $Color = "Cyan") {
+    Write-Host "  $Message" -ForegroundColor $Color
 }
 
 function Ensure-Command($Command, $InstallHint) {
@@ -19,35 +20,81 @@ function Ensure-Command($Command, $InstallHint) {
     }
 }
 
+function Invoke-QuietStep($Message, [scriptblock]$Action) {
+    Write-Host "  $Message..." -NoNewline -ForegroundColor Cyan
+
+    $SafeName = ($Message -replace "[^a-zA-Z0-9]+", "-").Trim("-").ToLower()
+    $LogPath = Join-Path $LogDir "$SafeName.log"
+
+    try {
+        $global:LASTEXITCODE = 0
+        & $Action *> $LogPath
+
+        if ($LASTEXITCODE -ne 0) {
+            throw "Command failed with exit code $LASTEXITCODE."
+        }
+
+        Write-Host " done" -ForegroundColor Green
+    }
+    catch {
+        Write-Host " failed" -ForegroundColor Red
+        Write-Host ""
+        Write-Host "CreatorKit could not finish this step:" -ForegroundColor Red
+        Write-Host "  $Message" -ForegroundColor White
+        Write-Host ""
+        Write-Host "Technical details were saved here:" -ForegroundColor Yellow
+        Write-Host "  $LogPath" -ForegroundColor DarkGray
+
+        if (Test-Path $LogPath) {
+            Write-Host ""
+            Write-Host "Last lines from the installer log:" -ForegroundColor Yellow
+            Get-Content -Path $LogPath -Tail 20 | ForEach-Object {
+                Write-Host "  $_" -ForegroundColor DarkGray
+            }
+        }
+
+        throw
+    }
+}
+
 Write-Host ""
-Write-Host "CreatorKit Installer" -ForegroundColor Cyan
-Write-Host "--------------------" -ForegroundColor DarkGray
+Write-Host "CreatorKit Setup" -ForegroundColor Cyan
+Write-Host "----------------" -ForegroundColor DarkGray
+Write-Host "This may take a few minutes the first time. You can keep this window open." -ForegroundColor DarkGray
+Write-Host ""
 
 Ensure-Command "python" "Install Python 3.10+ from https://www.python.org/downloads/ and enable 'Add Python to PATH'."
 Ensure-Command "git" "Install Git from https://git-scm.com/downloads."
 
 if (-not (Get-Command "ffmpeg" -ErrorAction SilentlyContinue)) {
-    Write-Host "[CreatorKit] FFmpeg was not found on PATH. Some audio/video files may fail until FFmpeg is installed." -ForegroundColor Yellow
+    Write-Host "  FFmpeg was not found. Some audio/video files may need FFmpeg later." -ForegroundColor Yellow
+    Write-Host ""
 }
 
-New-Item -ItemType Directory -Force -Path $InstallRoot, $BinDir | Out-Null
+New-Item -ItemType Directory -Force -Path $InstallRoot, $BinDir, $LogDir | Out-Null
 
 if (Test-Path $RepoDir) {
-    Write-Step "Updating existing app files..."
-    git -C $RepoDir pull --ff-only
+    Invoke-QuietStep "Updating app files" {
+        git -C $RepoDir pull --ff-only
+    }
 }
 else {
-    Write-Step "Downloading CreatorKit..."
-    git clone $RepoUrl $RepoDir
+    Invoke-QuietStep "Downloading app files" {
+        git clone --quiet $RepoUrl $RepoDir
+    }
 }
 
-Write-Step "Creating Python environment..."
-python -m venv (Join-Path $RepoDir "venv")
+Invoke-QuietStep "Creating app environment" {
+    python -m venv (Join-Path $RepoDir "venv")
+}
 
 $PythonExe = Join-Path $RepoDir "venv\Scripts\python.exe"
-Write-Step "Installing dependencies..."
-& $PythonExe -m pip install --upgrade pip
-& $PythonExe -m pip install -r (Join-Path $RepoDir "requirements.txt")
+Invoke-QuietStep "Preparing app engine" {
+    & $PythonExe -m pip install --upgrade pip --quiet --disable-pip-version-check --progress-bar off
+}
+Invoke-QuietStep "Installing app engine" {
+    & $PythonExe -m pip install -r (Join-Path $RepoDir "requirements.txt") --quiet --disable-pip-version-check --progress-bar off
+}
 
 Write-Step "Creating launcher command..."
 $Launcher = @"
@@ -71,8 +118,8 @@ if (($UserPath -split ";") -notcontains $BinDir) {
 }
 
 Write-Host ""
-Write-Host "CreatorKit installed successfully." -ForegroundColor Green
-Write-Host "Start it anytime with:" -ForegroundColor White
+Write-Host "CreatorKit is ready." -ForegroundColor Green
+Write-Host "Start it anytime by typing:" -ForegroundColor White
 Write-Host "  $CommandName" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "If your current terminal does not recognize the command, open a new terminal and try again." -ForegroundColor DarkGray
