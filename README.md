@@ -95,9 +95,19 @@ After installation, open a new terminal and run:
 creatorkit
 ```
 
+The installer downloads CreatorKit directly, creates an isolated Python environment, and tries to install a supported 64-bit Python 3.12 and FFmpeg automatically on fresh Windows laptops when `winget` is available.
+
+If you need to remove CreatorKit later, run:
+
+```powershell
+irm https://raw.githubusercontent.com/im-vedant26/CreatorKit/main/scripts/uninstall.ps1 | iex
+```
+
+Running the installer again also repairs an existing CreatorKit install.
+
 ### Manual Install
 
-Use this if you prefer to install manually or are using a non-Windows system.
+Use this if you prefer to install manually on Windows or want to control the steps yourself.
 
 Prerequisites:
 
@@ -130,7 +140,7 @@ yt-dlp
 
 </details>
 
-> The one-command installer is Windows-only for now. Manual install can work wherever the dependencies are supported.
+> The one-command installer is Windows-only for now.
 
 ---
 
