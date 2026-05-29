@@ -14,7 +14,7 @@ $script:InstallerErrorShown = $false
 function Write-Step($Message, $Color = "Cyan") {
     Write-Host "  $Message" -ForegroundColor $Color
 }
-
+/
 function Ensure-Command($Command, $InstallHint) {
     if (-not (Get-Command $Command -ErrorAction SilentlyContinue)) {
         throw "$Command was not found. $InstallHint"
