@@ -98,6 +98,9 @@ Invoke-QuietStep "Preparing app engine" {
 Invoke-QuietStep "Installing app engine" {
     & $PythonExe -m pip install -r (Join-Path $RepoDir "requirements.txt") --quiet --disable-pip-version-check --progress-bar off
 }
+Invoke-QuietStep "Updating link downloader" {
+    & $PythonExe -m pip install --upgrade yt-dlp --quiet --disable-pip-version-check --progress-bar off
+}
 
 Write-Step "Creating launcher command..."
 $Launcher = @"
