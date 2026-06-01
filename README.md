@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://img.shields.io/badge/CreatorKit-v0.1-22D3EE?style=for-the-badge&labelColor=0F172A&color=22D3EE" alt="CreatorKit v0.1"/>
+<img src="https://img.shields.io/badge/CreatorKit-v0.2-22D3EE?style=for-the-badge&labelColor=0F172A&color=22D3EE" alt="CreatorKit v0.2"/>
 
 # `CreatorKit`
 
@@ -105,6 +105,24 @@ irm https://raw.githubusercontent.com/im-vedant26/CreatorKit/main/scripts/uninst
 
 Running the installer again also repairs an existing CreatorKit install.
 
+### Updating CreatorKit
+
+CreatorKit checks for updates when it starts. If a newer version is available, the app will ask before running the official updater.
+
+Users who installed an older version before the update checker was added should run the installer command once to receive the updater.
+
+You can also update or repair CreatorKit manually anytime by rerunning the same installer command:
+
+```powershell
+irm https://raw.githubusercontent.com/im-vedant26/CreatorKit/main/scripts/install.ps1 | iex
+```
+
+After an update finishes, restart CreatorKit:
+
+```bash
+creatorkit
+```
+
 ### Manual Install
 
 Use this if you prefer to install manually on Windows or want to control the steps yourself.
@@ -161,6 +179,20 @@ From there, you can:
 [4] Export as TXT, SRT, VTT, or a complete Creator Folder
 ```
 
+### Link Download Notes
+
+CreatorKit uses `yt-dlp` for online links. Some providers, including YouTube and Instagram, may block anonymous downloads, reset the connection, require login cookies, or change their page format.
+
+If a link fails:
+
+```text
+1. Open the link in Chrome, Edge, or Firefox and make sure it plays there.
+2. Retry in CreatorKit using browser cookies.
+3. If needed, update CreatorKit by running the installer command again.
+```
+
+When a provider blocks direct access, uploading the audio/video file from your device still works.
+
 ---
 
 ## Output
@@ -188,7 +220,7 @@ outputs/
 | Chapters and timestamp generation | `planned` |
 | Hook and title suggestions | `planned` |
 | Short-form clip suggestions | `planned` |
-| Built-in update checker | `planned` |
+| Built-in update checker | `shipped` |
 
 ---
 
