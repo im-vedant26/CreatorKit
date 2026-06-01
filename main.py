@@ -3,15 +3,19 @@ import itertools
 import getpass
 import os
 import shutil
+import subprocess
 import threading
 import textwrap
 import time
 import tkinter as tk
 from tkinter import filedialog
+from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 from colorama import Fore, Style, init
 import pyfiglet
 import yt_dlp
+from yt_dlp.utils import DownloadError
 
 from transcriber import transcribe_audio, segments_to_srt, segments_to_vtt
 
@@ -24,7 +28,10 @@ DOWNLOAD_FILE = DOWNLOAD_BASE + ".mp3"
 OUTPUT_DIR = os.path.join(PROJECT_DIR, "outputs")
 APP_NAME = "CreatorKit"
 APP_COMMAND = "creatorkit"
+APP_VERSION = "0.2.0"
 APP_TAGLINE = "Turn audio and video into transcripts, captions, and creator-ready assets."
+REMOTE_VERSION_URL = "https://raw.githubusercontent.com/im-vedant26/CreatorKit/main/version.txt"
+INSTALL_COMMAND = "irm https://raw.githubusercontent.com/im-vedant26/CreatorKit/main/scripts/install.ps1 | iex"
 
 ACCENT = Fore.LIGHTCYAN_EX
 MUTED = Fore.LIGHTBLACK_EX
@@ -41,6 +48,12 @@ CORNER_BL = "+"
 CORNER_BR = "+"
 TEE_L = "+"
 TEE_R = "+"
+
+DOWNLOAD_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/125.0 Safari/537.36"
+)
 
 
 def clear_screen():
@@ -91,7 +104,7 @@ def box(lines, title=None, color=TEXT):
     print(FRAME + CORNER_BL + (BORDER_H * (width - 2)) + CORNER_BR)
 
 
-def run_with_activity(message, callback):
+def run_with_activity(message, callback, details=None):
     done = threading.Event()
     result = {}
 
@@ -109,7 +122,8 @@ def run_with_activity(message, callback):
     frames = itertools.cycle(["|", "/", "-", "\\"])
     started = time.monotonic()
     detail_cycle = itertools.cycle(
-        [
+        details
+        or [
             "loading model",
             "reading audio",
             "detecting speech",
@@ -163,6 +177,85 @@ def current_user_name():
 
 def print_goodbye():
     print(TEXT + f"\n  Thanks for using {APP_NAME}, {current_user_name()}.")
+
+
+def version_parts(value):
+    parts = []
+    for piece in value.strip().lstrip("vV").split("."):
+        digits = "".join(char for char in piece if char.isdigit())
+        parts.append(int(digits) if digits else 0)
+    return tuple(parts or [0])
+
+
+def is_newer_version(remote_version, local_version):
+    remote = list(version_parts(remote_version))
+    local = list(version_parts(local_version))
+    width = max(len(remote), len(local))
+    remote.extend([0] * (width - len(remote)))
+    local.extend([0] * (width - len(local)))
+    return tuple(remote) > tuple(local)
+
+
+def fetch_latest_version():
+    request = Request(REMOTE_VERSION_URL, headers={"User-Agent": f"{APP_NAME}/{APP_VERSION}"})
+    with urlopen(request, timeout=4) as response:
+        return response.read().decode("utf-8").strip()
+
+
+def run_installer_update():
+    command = [
+        "powershell",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        INSTALL_COMMAND,
+    ]
+    return subprocess.run(command, check=False).returncode
+
+
+def prompt_for_update_if_available():
+    try:
+        latest_version = fetch_latest_version()
+    except Exception:
+        return False
+
+    if not latest_version or not is_newer_version(latest_version, APP_VERSION):
+        return False
+
+    section("Update Available")
+    box(
+        [
+            f"Current version: {APP_VERSION}",
+            f"Latest version: {latest_version}",
+            "Updating will download the newest CreatorKit files and refresh the app engine.",
+        ],
+        title="CreatorKit Update",
+    )
+    print_menu(
+        "Update",
+        [
+            ("1", "Update now", "run the official installer update"),
+            ("2", "Skip for now", "continue with this version"),
+        ],
+    )
+    choice = ask_choice("Choose update option", ["1", "2"], default="2")
+
+    if choice != "1":
+        status("SKIP", "Continuing without updating.", WARN)
+        pause()
+        return False
+
+    section("Updating")
+    status("WORKING", "Running the CreatorKit installer update.", ACCENT)
+    exit_code = run_installer_update()
+    if exit_code == 0:
+        status("DONE", "Update finished. Restart CreatorKit to use the new version.", GOOD)
+    else:
+        status("ERROR", f"Update command failed with exit code {exit_code}.", BAD)
+        status("TIP", "You can retry by running the installer command from the README.", WARN)
+    pause("Press Enter to close CreatorKit...")
+    return True
 
 
 def print_menu(title, options):
@@ -283,11 +376,65 @@ def export_project_folder(file_path, output_text, srt_segments):
     return folder
 
 
+def is_probably_url(value):
+    parsed = urlparse(value.strip())
+    return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+
+
+def cleanup_download_artifacts():
+    for filename in os.listdir(PROJECT_DIR):
+        if filename == "downloaded_audio" or filename.startswith("downloaded_audio."):
+            path = os.path.join(PROJECT_DIR, filename)
+            if os.path.isfile(path):
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+
+
+def verify_downloaded_audio():
+    if not os.path.exists(DOWNLOAD_FILE) or os.path.getsize(DOWNLOAD_FILE) == 0:
+        raise DownloadError("The provider did not return a usable audio file.")
+    return DOWNLOAD_FILE
+
+
+def describe_download_error(err):
+    message = str(err)
+    lower_message = message.lower()
+
+    if "sign in to confirm" in lower_message or "not a bot" in lower_message:
+        return (
+            "YouTube is asking for browser verification. Retry with browser cookies from the same browser "
+            "where the video already plays."
+        )
+    if "login" in lower_message or "cookies" in lower_message or "private" in lower_message:
+        return "This link needs account access. Browser cookies or a cookies.txt file are required."
+    if "age" in lower_message:
+        return "This video is age-restricted. Use browser cookies from an account that can watch it."
+    if "429" in lower_message or "too many requests" in lower_message or "rate-limit" in lower_message:
+        return "The provider is rate-limiting downloads. Wait a while, then retry with browser cookies."
+    if "unsupported url" in lower_message:
+        return "This site is not supported by the current yt-dlp extractor."
+    if "video unavailable" in lower_message or "removed" in lower_message:
+        return "The provider says this video is unavailable or removed."
+    if "requested format is not available" in lower_message:
+        return "The provider did not expose an audio format for this link."
+
+    return "The provider blocked or changed the online download response."
+
+
 def _yt_dlp_download(url, outpath, extra_opts=None):
+    cleanup_download_artifacts()
     opts = {
         "outtmpl": outpath,
         "quiet": True,
+        "no_warnings": True,
         "format": "bestaudio/best",
+        "retries": 3,
+        "fragment_retries": 3,
+        "extractor_retries": 3,
+        "socket_timeout": 30,
+        "http_headers": {"User-Agent": DOWNLOAD_USER_AGENT},
         "postprocessors": [
             {
                 "key": "FFmpegExtractAudio",
@@ -301,27 +448,36 @@ def _yt_dlp_download(url, outpath, extra_opts=None):
         opts.update(extra_opts)
     with yt_dlp.YoutubeDL(opts) as ydl:
         ydl.download([url])
+    verify_downloaded_audio()
 
 
 def download_video_from_link(url):
     """Download audio from a link and return the local MP3 path."""
     section("Download")
     status("WORKING", "Downloading best available audio. This can take a moment.", ACCENT)
+    download_details = [
+        "contacting provider",
+        "checking available media",
+        "downloading audio",
+        "converting to MP3",
+        "almost there",
+    ]
 
     try:
-        run_with_activity("Downloading audio", lambda: _yt_dlp_download(url, DOWNLOAD_BASE))
+        run_with_activity("Downloading audio", lambda: _yt_dlp_download(url, DOWNLOAD_BASE), download_details)
         return DOWNLOAD_FILE
     except Exception as err:
-        status("ERROR", f"Anonymous download failed: {err}", BAD)
+        status("ERROR", f"Anonymous download failed: {describe_download_error(err)}", BAD)
+        status("DETAIL", str(err), MUTED)
 
     box(
         [
-            "Some links need login cookies, especially private, age-gated, or platform-limited posts.",
+            "Online providers can block anonymous downloads, reset the connection, or require a logged-in session.",
             "1. Retry using browser cookies automatically",
             "2. Use a cookies.txt file",
             "3. Return to main menu",
         ],
-        title="Download needs access",
+        title="Download retry options",
     )
 
     while True:
@@ -338,15 +494,20 @@ def download_video_from_link(url):
                             DOWNLOAD_BASE,
                             extra_opts={"cookies_from_browser": browser},
                         ),
+                        download_details,
                     )
                     return DOWNLOAD_FILE
                 except Exception as err:
-                    status("WARN", f"{browser} cookies failed: {err}", WARN)
+                    status("WARN", f"{browser} cookies failed: {describe_download_error(err)}", WARN)
             status("ERROR", "All browser-cookie attempts failed.", BAD)
+            status("TIP", "Make sure the link plays in that browser, then retry. Updating yt-dlp can also help.", WARN)
 
         elif choice == "2":
             cookie_path = input(ACCENT + "\n  > Full path to cookies.txt: " + TEXT).strip().strip('"')
-            if not cookie_path or not os.path.exists(cookie_path):
+            if not cookie_path:
+                status("SKIP", "No cookies file provided.", WARN)
+                continue
+            if not os.path.isfile(cookie_path):
                 status("ERROR", "That cookies file path does not exist.", BAD)
                 continue
             try:
@@ -354,10 +515,12 @@ def download_video_from_link(url):
                 run_with_activity(
                     "Downloading with cookies file",
                     lambda: _yt_dlp_download(url, DOWNLOAD_BASE, extra_opts={"cookiefile": cookie_path}),
+                    download_details,
                 )
                 return DOWNLOAD_FILE
             except Exception as err:
-                status("ERROR", f"Retry with cookies file failed: {err}", BAD)
+                status("ERROR", f"Retry with cookies file failed: {describe_download_error(err)}", BAD)
+                status("DETAIL", str(err), MUTED)
 
         elif choice == "3":
             status("SKIP", "Returning to main menu.", ACCENT)
@@ -475,6 +638,11 @@ def run_transcription(file_path):
 
 
 def main():
+    clear_screen()
+    print_header()
+    if prompt_for_update_if_available():
+        return
+
     while True:
         clear_screen()
         print_header()
@@ -499,6 +667,10 @@ def main():
             link = input(ACCENT + "\n  > Paste the video link: " + TEXT).strip()
             if not link:
                 status("ERROR", "No link provided.", BAD)
+                pause()
+                continue
+            if not is_probably_url(link):
+                status("ERROR", "Paste a full link that starts with http:// or https://.", BAD)
                 pause()
                 continue
             file_path = download_video_from_link(link)
