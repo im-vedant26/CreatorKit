@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://img.shields.io/badge/CreatorKit-v0.2-22D3EE?style=for-the-badge&labelColor=0F172A&color=22D3EE" alt="CreatorKit v0.2"/>
+<img src="https://img.shields.io/badge/CreatorKit-v0.4.0-22D3EE?style=for-the-badge&labelColor=0F172A&color=22D3EE" alt="CreatorKit v0.4.0"/>
 
 # `CreatorKit`
 
@@ -10,11 +10,15 @@ Turn audio and video into creator-ready assets from a clean interactive terminal
 
 [![MIT License](https://img.shields.io/badge/License-MIT-22C55E?style=flat-square&labelColor=0F172A)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/Python-3.10+-22D3EE?style=flat-square&labelColor=0F172A)](https://www.python.org/)
-[![Platform](https://img.shields.io/badge/Platform-Windows-94A3B8?style=flat-square&labelColor=0F172A)]()
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%2B%20macOS-94A3B8?style=flat-square&labelColor=0F172A)]()
 [![Open Source](https://img.shields.io/badge/Open-Source-22C55E?style=flat-square&labelColor=0F172A)](https://github.com/im-vedant26/CreatorKit)
 
 ```powershell
 irm https://raw.githubusercontent.com/im-vedant26/CreatorKit/main/scripts/install.ps1 | iex
+```
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/im-vedant26/CreatorKit/main/scripts/install.sh | bash
 ```
 
 ```bash
@@ -40,8 +44,9 @@ creatorkit
   Input
   ------------------------------------------------------------
   [1] Upload from your device     audio or video file
-  [2] Paste a video link          YouTube, Instagram, and more
-  [3] Exit                        close the app
+  [2] Paste a media link          Instagram and other supported sites
+  [3] Paste transcript            use text or captions you can legally use
+  [4] Exit                        close the app
 
   > Enter your choice [1/2/3]:
 
@@ -70,11 +75,13 @@ Built for **YouTubers, podcasters, educators, short-form creators, video editors
 |---|---|---|
 | `TRN` | **Transcribe local files** | Select audio or video from your device and generate a transcript. |
 | `DL` | **Download from links** | Paste a supported URL and CreatorKit downloads the best available audio. |
+| `TXTIN` | **Paste transcript** | Use transcript text or captions you have permission to process. |
 | `EN` | **Translate to English** | Use Whisper translate mode for non-English speech. |
 | `TXT` | **Export transcript** | Save the spoken content as a plain text file. |
 | `SRT` | **Export subtitles** | Save subtitle files for editors and platforms. |
 | `VTT` | **Export captions** | Save WebVTT captions for YouTube and web players. |
-| `PKG` | **Creator Folder** | Save TXT, SRT, and VTT together in one organized output folder. |
+| `AST` | **Creator Assets** | Generate clean transcript, chapters, description draft, and caption snippets. |
+| `PKG` | **Creator Package** | Save the full Creator Launch Pack in one organized folder. |
 | `...` | **Live activity** | See elapsed time and activity while long tasks are running. |
 
 ---
@@ -95,7 +102,7 @@ After installation, open a new terminal and run:
 creatorkit
 ```
 
-The installer downloads CreatorKit directly, creates an isolated Python environment, and tries to install a supported 64-bit Python 3.12 and FFmpeg automatically on fresh Windows laptops when `winget` is available.
+The installer downloads CreatorKit, creates an isolated Python environment, installs the app dependencies, and creates the `creatorkit` launcher. Python 3.10+ and Git should already be installed. FFmpeg is recommended for audio/video handling.
 
 If you need to remove CreatorKit later, run:
 
@@ -105,6 +112,28 @@ irm https://raw.githubusercontent.com/im-vedant26/CreatorKit/main/scripts/uninst
 
 Running the installer again also repairs an existing CreatorKit install.
 
+### macOS - One Command
+
+Open Terminal and run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/im-vedant26/CreatorKit/main/scripts/install.sh | bash
+```
+
+After installation, open a new terminal and run:
+
+```bash
+creatorkit
+```
+
+The macOS installer creates a local app environment under `~/.creatorkit`, installs the Python dependencies, and creates a `creatorkit` launcher in `~/.local/bin`.
+
+FFmpeg is required for many audio/video formats. If FFmpeg is missing, install it with Homebrew:
+
+```bash
+brew install ffmpeg
+```
+
 ### Updating CreatorKit
 
 CreatorKit checks for updates when it starts. If a newer version is available, the app will ask before running the official updater.
@@ -113,8 +142,16 @@ Users who installed an older version before the update checker was added should 
 
 You can also update or repair CreatorKit manually anytime by rerunning the same installer command:
 
+Windows:
+
 ```powershell
 irm https://raw.githubusercontent.com/im-vedant26/CreatorKit/main/scripts/install.ps1 | iex
+```
+
+macOS:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/im-vedant26/CreatorKit/main/scripts/install.sh | bash
 ```
 
 After an update finishes, restart CreatorKit:
@@ -158,7 +195,7 @@ yt-dlp
 
 </details>
 
-> The one-command installer is Windows-only for now.
+> Linux support is planned for the next platform update.
 
 ---
 
@@ -174,21 +211,42 @@ From there, you can:
 
 ```text
 [1] Choose a local audio or video file
-[2] Paste a supported link for download and transcription
-[3] Select transcription or English translation mode
-[4] Export as TXT, SRT, VTT, or a complete Creator Folder
+[2] Paste a supported media link for download and transcription
+[3] Paste transcript text or captions when media download is blocked
+[4] Select transcription or English translation mode
+[5] Export as TXT, SRT, VTT, Creator Assets, or a complete Creator Package
 ```
+
+### Creator Assets
+
+CreatorKit can turn a transcript into local first-draft publishing assets:
+
+```text
+Clean transcript
+Chapter timestamps
+YouTube description draft
+Caption snippets
+```
+
+These assets are generated locally from the transcript and timestamps. No API key is required.
+
+### Creator Package
+
+The Creator Package is the full Creator Launch Pack: transcript, captions when available, publishing drafts, platform captions, clip ideas, pinned comments, keywords, hashtags, and one combined `publish_pack.md` file.
 
 ### Link Download Notes
 
-CreatorKit uses `yt-dlp` for online links. Some providers, including YouTube and Instagram, may block anonymous downloads, reset the connection, require login cookies, or change their page format.
+CreatorKit uses `yt-dlp` for supported online links. Some providers, including Instagram and similar sites, may block anonymous downloads, reset the connection, require login cookies, or change their page format.
+
+YouTube link support is temporarily disabled while we stabilize the local workflow and keep the product legally and operationally reliable.
 
 If a link fails:
 
 ```text
-1. Open the link in Chrome, Edge, or Firefox and make sure it plays there.
-2. Retry in CreatorKit using browser cookies.
-3. If needed, update CreatorKit by running the installer command again.
+1. Upload your own audio/video file.
+2. Paste transcript text or captions you have permission to use.
+3. For videos you uploaded, download your file from YouTube Studio and upload it to CreatorKit.
+4. If needed, update CreatorKit by running the installer command again.
 ```
 
 When a provider blocks direct access, uploading the audio/video file from your device still works.
@@ -197,15 +255,27 @@ When a provider blocks direct access, uploading the audio/video file from your d
 
 ## Output
 
-The Creator Folder export creates an organized package:
+The Creator Package export creates an organized folder:
 
 ```text
 outputs/
   my_video/
-    my_video_transcript.txt
-    my_video_captions.srt
-    my_video_captions.vtt
+    01_transcript.txt
+    02_clean_transcript.txt
+    03_captions.srt
+    04_captions.vtt
+    05_chapters.txt
+    06_youtube_description.txt
+    07_title_ideas.txt
+    08_hook_ideas.txt
+    09_platform_captions.txt
+    10_clip_ideas.txt
+    11_pinned_comments.txt
+    12_hashtags_keywords.txt
+    publish_pack.md
 ```
+
+Caption files are included when the source has timestamps. Pasted transcripts without timestamps still export the transcript and creator asset files.
 
 ---
 
@@ -213,14 +283,16 @@ outputs/
 
 | Feature | Status |
 |---|---|
-| Clean transcript mode | `planned` |
+| Clean transcript mode | `shipped` |
 | Batch processing | `planned` |
-| Summaries | `planned` |
-| YouTube description generator | `planned` |
-| Chapters and timestamp generation | `planned` |
+| Creator assets | `shipped` |
+| YouTube description generator | `shipped` |
+| Chapters and timestamp generation | `shipped` |
 | Hook and title suggestions | `planned` |
-| Short-form clip suggestions | `planned` |
+| Caption snippets | `shipped` |
 | Built-in update checker | `shipped` |
+| Linux support | `planned` |
+| MCP and skills layer | `planned` |
 
 ---
 
@@ -229,7 +301,7 @@ outputs/
 CreatorKit is open source. Contributions are welcome, whether it is a bug fix, new export format, UX improvement, testing help, or documentation.
 
 ```bash
-git clone https://github.com/your-username/CreatorKit.git
+git clone https://github.com/im-vedant26/CreatorKit.git
 cd CreatorKit
 ```
 
