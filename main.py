@@ -17,6 +17,7 @@ import pyfiglet
 import yt_dlp
 from yt_dlp.utils import DownloadError
 
+from creator_assets import build_creator_assets
 from transcriber import transcribe_audio, segments_to_srt, segments_to_vtt
 
 
@@ -28,10 +29,11 @@ DOWNLOAD_FILE = DOWNLOAD_BASE + ".mp3"
 OUTPUT_DIR = os.path.join(PROJECT_DIR, "outputs")
 APP_NAME = "CreatorKit"
 APP_COMMAND = "creatorkit"
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.4.0"
 APP_TAGLINE = "Turn audio and video into transcripts, captions, and creator-ready assets."
 REMOTE_VERSION_URL = "https://raw.githubusercontent.com/im-vedant26/CreatorKit/main/version.txt"
-INSTALL_COMMAND = "irm https://raw.githubusercontent.com/im-vedant26/CreatorKit/main/scripts/install.ps1 | iex"
+WINDOWS_INSTALL_COMMAND = "irm https://raw.githubusercontent.com/im-vedant26/CreatorKit/main/scripts/install.ps1 | iex"
+MACOS_INSTALL_COMMAND = "curl -fsSL https://raw.githubusercontent.com/im-vedant26/CreatorKit/main/scripts/install.sh | bash"
 
 ACCENT = Fore.LIGHTCYAN_EX
 MUTED = Fore.LIGHTBLACK_EX
@@ -54,6 +56,17 @@ DOWNLOAD_USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/125.0 Safari/537.36"
 )
+
+
+class QuietYtdlpLogger:
+    def debug(self, msg):
+        pass
+
+    def warning(self, msg):
+        pass
+
+    def error(self, msg):
+        pass
 
 
 def clear_screen():
@@ -203,14 +216,17 @@ def fetch_latest_version():
 
 
 def run_installer_update():
-    command = [
-        "powershell",
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        INSTALL_COMMAND,
-    ]
+    if os.name == "nt":
+        command = [
+            "powershell",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            WINDOWS_INSTALL_COMMAND,
+        ]
+    else:
+        command = ["bash", "-lc", MACOS_INSTALL_COMMAND]
     return subprocess.run(command, check=False).returncode
 
 
@@ -263,7 +279,7 @@ def print_menu(title, options):
     print(ACCENT + Style.BRIGHT + f"  {title}")
     print(MUTED + "  " + BORDER_H * min(display_width() - 2, 60))
     for key, label, hint in options:
-        key_box = WARN + f"[{key}] "
+        key_box = WARN + f"  [{key}] "
         print(key_box + TEXT + f"{label:<24}" + MUTED + hint)
 
 
@@ -314,6 +330,33 @@ def browse_file():
     return file_path
 
 
+def paste_transcript_text():
+    section("Paste Transcript")
+    box(
+        [
+            "Paste transcript text or captions you have permission to use.",
+            "When you are finished, type DONE on a new line and press Enter.",
+        ],
+        title="Text Input",
+    )
+
+    lines = []
+    while True:
+        line_value = input(TEXT)
+        if line_value.strip().upper() == "DONE":
+            break
+        lines.append(line_value)
+
+    text = "\n".join(lines).strip()
+    if not text:
+        status("ERROR", "No transcript text was provided.", BAD)
+        return None, None
+
+    project_name = input(ACCENT + "\n  > Project name default: pasted_transcript: " + TEXT).strip()
+    project_name = project_name or "pasted_transcript"
+    return project_name, text
+
+
 def save_file_dialog(default_filename, extension, filetypes):
     root = tk.Tk()
     try:
@@ -362,17 +405,50 @@ def create_project_output_folder(file_path):
 
 def export_project_folder(file_path, output_text, srt_segments):
     folder = create_project_output_folder(file_path)
-    base_name = safe_name(file_path)
+    creator_assets = build_creator_assets(output_text, srt_segments)
     files = {
-        f"{base_name}_transcript.txt": output_text,
-        f"{base_name}_captions.srt": segments_to_srt(srt_segments),
-        f"{base_name}_captions.vtt": segments_to_vtt(srt_segments),
+        "01_transcript.txt": output_text,
+        "02_clean_transcript.txt": creator_assets["clean_transcript"],
+        "05_chapters.txt": creator_assets["chapters"],
+        "06_youtube_description.txt": creator_assets["youtube_description"],
+        "07_title_ideas.txt": creator_assets["title_ideas"],
+        "08_hook_ideas.txt": creator_assets["hook_ideas"],
+        "09_platform_captions.txt": creator_assets["platform_captions"],
+        "10_clip_ideas.txt": creator_assets["clip_ideas"],
+        "11_pinned_comments.txt": creator_assets["pinned_comments"],
+        "12_hashtags_keywords.txt": creator_assets["hashtags_keywords"],
+        "publish_pack.md": creator_assets["publish_pack"],
+    }
+    if srt_segments:
+        files.update(
+            {
+                "03_captions.srt": segments_to_srt(srt_segments),
+                "04_captions.vtt": segments_to_vtt(srt_segments),
+            }
+        )
+
+    for filename, content in files.items():
+        write_text_file(os.path.join(folder, filename), content)
+
+    status("SAVED", f"Creator package folder: {folder}", GOOD)
+    return folder
+
+
+def export_creator_assets(file_path, output_text, srt_segments):
+    folder = create_project_output_folder(file_path)
+    base_name = safe_name(file_path)
+    creator_assets = build_creator_assets(output_text, srt_segments)
+    files = {
+        f"{base_name}_clean_transcript.txt": creator_assets["clean_transcript"],
+        f"{base_name}_chapters.txt": creator_assets["chapters"],
+        f"{base_name}_youtube_description.txt": creator_assets["youtube_description"],
+        f"{base_name}_caption_snippets.txt": creator_assets["caption_snippets"],
     }
 
     for filename, content in files.items():
         write_text_file(os.path.join(folder, filename), content)
 
-    status("SAVED", f"Creator project folder: {folder}", GOOD)
+    status("SAVED", f"Creator assets folder: {folder}", GOOD)
     return folder
 
 
@@ -413,6 +489,11 @@ def describe_download_error(err):
         return "This video is age-restricted. Use browser cookies from an account that can watch it."
     if "429" in lower_message or "too many requests" in lower_message or "rate-limit" in lower_message:
         return "The provider is rate-limiting downloads. Wait a while, then retry with browser cookies."
+    if "403" in lower_message or "forbidden" in lower_message:
+        return (
+            "The provider refused the media file. For YouTube, try the built-in compatibility retry, "
+            "update CreatorKit, or upload the video/audio file from your device."
+        )
     if "unsupported url" in lower_message:
         return "This site is not supported by the current yt-dlp extractor."
     if "video unavailable" in lower_message or "removed" in lower_message:
@@ -429,6 +510,7 @@ def _yt_dlp_download(url, outpath, extra_opts=None):
         "outtmpl": outpath,
         "quiet": True,
         "no_warnings": True,
+        "logger": QuietYtdlpLogger(),
         "format": "bestaudio/best",
         "retries": 3,
         "fragment_retries": 3,
@@ -451,10 +533,7 @@ def _yt_dlp_download(url, outpath, extra_opts=None):
     verify_downloaded_audio()
 
 
-def download_video_from_link(url):
-    """Download audio from a link and return the local MP3 path."""
-    section("Download")
-    status("WORKING", "Downloading best available audio. This can take a moment.", ACCENT)
+def try_download_modes(url, label_prefix, base_opts=None):
     download_details = [
         "contacting provider",
         "checking available media",
@@ -462,10 +541,37 @@ def download_video_from_link(url):
         "converting to MP3",
         "almost there",
     ]
+    last_error = None
 
     try:
-        run_with_activity("Downloading audio", lambda: _yt_dlp_download(url, DOWNLOAD_BASE), download_details)
+        status("TRY", f"{label_prefix}: standard mode", ACCENT)
+        run_with_activity(
+            "Downloading audio",
+            lambda: _yt_dlp_download(url, DOWNLOAD_BASE, extra_opts=base_opts),
+            download_details,
+        )
         return DOWNLOAD_FILE
+    except Exception as err:
+        last_error = err
+        status("WARN", f"standard mode failed: {describe_download_error(err)}", WARN)
+
+    if last_error:
+        raise last_error
+    raise DownloadError("No download attempts were available.")
+
+
+def download_video_from_link(url):
+    """Download audio from a link and return the local MP3 path."""
+    section("Download")
+    status("WORKING", "Downloading best available audio. This can take a moment.", ACCENT)
+    parsed_netloc = urlparse(url.strip()).netloc.lower()
+    if parsed_netloc in ("youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be", "www.youtu.be") or parsed_netloc.endswith(".youtube.com"):
+        status("ERROR", "YouTube link support is temporarily disabled while we stabilize the local workflow.", BAD)
+        status("TIP", "Upload the video/audio file from your device or paste transcript text instead.", WARN)
+        return None
+
+    try:
+        return try_download_modes(url, "Anonymous download")
     except Exception as err:
         status("ERROR", f"Anonymous download failed: {describe_download_error(err)}", BAD)
         status("DETAIL", str(err), MUTED)
@@ -475,32 +581,28 @@ def download_video_from_link(url):
             "Online providers can block anonymous downloads, reset the connection, or require a logged-in session.",
             "1. Retry using browser cookies automatically",
             "2. Use a cookies.txt file",
-            "3. Return to main menu",
+            "3. Upload the file from your device instead",
+            "4. Return to main menu",
         ],
         title="Download retry options",
     )
 
     while True:
-        choice = ask_choice("Retry option", ["1", "2", "3"], default="3")
+        choice = ask_choice("Retry option", ["1", "2", "3", "4"], default="4")
 
         if choice == "1":
             for browser in ["chrome", "edge", "firefox"]:
                 try:
                     status("RETRY", f"Trying {browser} browser cookies...", ACCENT)
-                    run_with_activity(
-                        f"Downloading with {browser} cookies",
-                        lambda browser=browser: _yt_dlp_download(
-                            url,
-                            DOWNLOAD_BASE,
-                            extra_opts={"cookies_from_browser": browser},
-                        ),
-                        download_details,
+                    return try_download_modes(
+                        url,
+                        f"{browser} cookies",
+                        base_opts={"cookies_from_browser": browser},
                     )
-                    return DOWNLOAD_FILE
                 except Exception as err:
                     status("WARN", f"{browser} cookies failed: {describe_download_error(err)}", WARN)
             status("ERROR", "All browser-cookie attempts failed.", BAD)
-            status("TIP", "Make sure the link plays in that browser, then retry. Updating yt-dlp can also help.", WARN)
+            status("TIP", "Make sure the link plays in that browser, update CreatorKit, or upload the file directly.", WARN)
 
         elif choice == "2":
             cookie_path = input(ACCENT + "\n  > Full path to cookies.txt: " + TEXT).strip().strip('"')
@@ -512,17 +614,22 @@ def download_video_from_link(url):
                 continue
             try:
                 status("RETRY", "Trying provided cookies file...", ACCENT)
-                run_with_activity(
-                    "Downloading with cookies file",
-                    lambda: _yt_dlp_download(url, DOWNLOAD_BASE, extra_opts={"cookiefile": cookie_path}),
-                    download_details,
+                return try_download_modes(
+                    url,
+                    "cookies.txt",
+                    base_opts={"cookiefile": cookie_path},
                 )
-                return DOWNLOAD_FILE
             except Exception as err:
                 status("ERROR", f"Retry with cookies file failed: {describe_download_error(err)}", BAD)
                 status("DETAIL", str(err), MUTED)
 
         elif choice == "3":
+            file_path = browse_file()
+            if file_path:
+                return file_path
+            status("SKIP", "No file selected.", WARN)
+
+        elif choice == "4":
             status("SKIP", "Returning to main menu.", ACCENT)
             return None
 
@@ -544,23 +651,38 @@ def show_transcript_preview(text):
 
 
 def save_transcript(file_path, output_text, srt_segments):
-    print_menu(
-        "Save Output",
+    has_timestamps = bool(srt_segments)
+    options = [
+        ("1", "TXT", "plain text transcript"),
+    ]
+    if has_timestamps:
+        options.extend(
+            [
+                ("2", "SRT", "subtitle file for editing and platforms"),
+                ("3", "VTT", "web captions for YouTube/web players"),
+            ]
+        )
+    options.extend(
         [
-            ("1", "TXT", "plain text transcript"),
-            ("2", "SRT", "subtitle file for editing and platforms"),
-            ("3", "VTT", "web captions for YouTube/web players"),
-            ("4", "Creator folder", "TXT, SRT, and VTT together"),
-            ("5", "Do not save", "return to main menu"),
-        ],
+            ("4", "Creator assets", "clean transcript, chapters, description, snippets"),
+            ("5", "Creator package", "all transcript, caption, and creator files"),
+            ("6", "Do not save", "return to main menu"),
+        ]
     )
-    save_choice = ask_choice("Choose save format", ["1", "2", "3", "4", "5"])
 
-    if save_choice == "5":
+    print_menu("Save Your Work", options)
+    valid_choices = [option[0] for option in options]
+    save_choice = ask_choice("Choose save format", valid_choices)
+
+    if save_choice == "6":
         status("SKIP", "Output was not saved.", ACCENT)
         return
 
     if save_choice == "4":
+        export_creator_assets(file_path, output_text, srt_segments)
+        return
+
+    if save_choice == "5":
         export_project_folder(file_path, output_text, srt_segments)
         return
 
@@ -651,11 +773,12 @@ def main():
             "Input",
             [
                 ("1", "Upload from your device", "audio or video file"),
-                ("2", "Paste a video link", "YouTube, Instagram, and more"),
-                ("3", "Exit", "close the app"),
+                ("2", "Paste a media link", "Instagram and other supported sites"),
+                ("3", "Paste transcript", "use text or captions you can legally use"),
+                ("4", "Exit", "close the app"),
             ],
         )
-        choice = ask_choice("Enter your choice", ["1", "2", "3"])
+        choice = ask_choice("Enter your choice", ["1", "2", "3", "4"])
 
         if choice == "1":
             file_path = browse_file()
@@ -673,10 +796,29 @@ def main():
                 status("ERROR", "Paste a full link that starts with http:// or https://.", BAD)
                 pause()
                 continue
+            parsed_netloc = urlparse(link.strip()).netloc.lower()
+            if parsed_netloc in ("youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be", "www.youtu.be") or parsed_netloc.endswith(".youtube.com"):
+                status("ERROR", "YouTube link support is temporarily disabled while we stabilize the local workflow.", BAD)
+                status("TIP", "Upload the video/audio file from your device or paste transcript text instead.", WARN)
+                pause()
+                continue
             file_path = download_video_from_link(link)
             if not file_path:
                 pause()
                 continue
+
+        elif choice == "3":
+            file_path, pasted_text = paste_transcript_text()
+            if not file_path:
+                pause()
+                continue
+            show_transcript_preview(pasted_text)
+            save_transcript(file_path, pasted_text, [])
+            again = ask_choice("Transcribe another file?", ["y", "n"], default="y")
+            if again != "y":
+                print_goodbye()
+                break
+            continue
 
         else:
             print_goodbye()
