@@ -15,6 +15,7 @@ venv/
 
 # Runtime outputs
 downloaded_audio.mp3
+downloaded_audio.*
 outputs/
 *.mp3
 *.wav
